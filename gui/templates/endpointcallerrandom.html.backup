@@ -1,0 +1,138 @@
+{% extends 'table_layout.html' %}
+
+{% block title %}Endpoint Caller Random{% endblock %}
+
+{% block table_headers %}
+<div>
+  <h3><i class="fa fa-random"></i> Endpoint Caller Random Configuration</h3>
+  <p class="text-muted">Manage random caller ID numbers for endpoint groups</p>
+</div>
+
+<!-- Upload Section -->
+<div class="row" style="margin-bottom: 20px;">
+  <div class="col-12">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h4><i class="fa fa-upload"></i> Upload Caller Numbers</h4>
+      </div>
+      <div class="panel-body">
+        <form method="POST" action="{{ url_for('endpoint_caller_random.uploadCallerNumbers') }}" 
+              enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label for="gwgroupid">Endpoint Group *</label>
+                <select name="gwgroupid" id="gwgroupid" class="form-control" required>
+                  <option value="">Select Endpoint Group...</option>
+                  {% for group in endpoint_groups %}
+                  <option value="{{ group.id }}">{{ group.name }} (ID: {{ group.id }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="file">Excel File (.xls, .xlsx) *</label>
+                <input type="file" name="file" id="file" class="form-control" 
+                       accept=".xls,.xlsx" required>
+              </div>
+              
+              <div class="form-group">
+                <div class="checkbox">
+                  <label>
+                    <input type="checkbox" name="replace_existing">
+                    Replace existing numbers for this group
+                  </label>
+                </div>
+              </div>
+              
+              <button type="submit" class="btn btn-primary">
+                <i class="fa fa-upload"></i> Upload Numbers
+              </button>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="alert alert-info">
+                <h5><i class="fa fa-info-circle"></i> Instructions</h5>
+                <ul>
+                  <li>Excel file with phone numbers column</li>
+                  <li>International format recommended (+1234567890)</li>
+                  <li>Numbers will be used randomly for outbound calls</li>
+                  <li>Supported columns: number, phone, caller_number</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block table %}
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Endpoint Group</th>
+      <th>Group ID</th>
+      <th>Total Numbers</th>
+      <th>Active Numbers</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% if configured_numbers %}
+      {% for config in configured_numbers %}
+      <tr>
+        <td><strong>{{ config.group_name }}</strong></td>
+        <td><span class="label label-default">{{ config.gwgroupid }}</span></td>
+        <td><span class="label label-info">{{ config.total_numbers }}</span></td>
+        <td>
+          {% if config.active_numbers > 0 %}
+            <span class="label label-success">{{ config.active_numbers }}</span>
+          {% else %}
+            <span class="label label-default">{{ config.active_numbers }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="btn-group">
+            <!-- Toggle Active/Inactive -->
+            <form method="POST" action="{{ url_for('endpoint_caller_random.toggleCallerNumbers', gwgroupid=config.gwgroupid) }}" 
+                  style="display: inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <input type="hidden" name="active" value="{{ 'false' if config.active_numbers > 0 else 'true' }}">
+              <button type="submit" class="btn btn-sm btn-{{ 'warning' if config.active_numbers > 0 else 'success' }}"
+                      onclick="return confirm('{{ 'Deactivate' if config.active_numbers > 0 else 'Activate' }} all numbers?')">
+                <i class="fa fa-{{ 'pause' if config.active_numbers > 0 else 'play' }}"></i>
+                {{ 'Deactivate' if config.active_numbers > 0 else 'Activate' }}
+              </button>
+            </form>
+            
+            <!-- Delete -->
+            <form method="POST" action="{{ url_for('endpoint_caller_random.deleteCallerNumbers', gwgroupid=config.gwgroupid) }}" 
+                  style="display: inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+              <button type="submit" class="btn btn-sm btn-danger"
+                      onclick="return confirm('Delete all numbers for {{ config.group_name }}?')">
+                <i class="fa fa-trash"></i> Delete
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      <tr>
+        <td colspan="5" class="text-center">
+          <div class="alert alert-info">
+            <i class="fa fa-info-circle"></i>
+            No configurations found. Upload an Excel file to get started.
+          </div>
+        </td>
+      </tr>
+    {% endif %}
+  </tbody>
+</table>
+{% endblock %}

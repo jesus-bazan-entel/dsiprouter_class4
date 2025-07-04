@@ -43,6 +43,7 @@ from modules.api.licensemanager.classes import WoocommerceError
 from modules.api.licensemanager.functions import licenseDictToStateDict, getLicenseStatusFromStateDict, \
     getLicenseStatus
 from modules.api.licensemanager.routes import license_manager
+from modules.endpoint_caller_random import endpoint_caller_bp
 from modules.api.auth.routes import user
 from util.security import Credentials, urandomChars, AES_CTR
 from util.ipc import SETTINGS_SHMEM_NAME, STATE_SHMEM_NAME, createSharedMemoryDict, getSharedMemoryDict
@@ -78,6 +79,7 @@ app.register_blueprint(mediaserver)
 app.register_blueprint(carriergroups)
 app.register_blueprint(user)
 app.register_blueprint(license_manager)
+app.register_blueprint(endpoint_caller_bp)
 app.register_blueprint(Blueprint('docs', 'docs', static_url_path='/docs', static_folder=settings.DSIP_DOCS_DIR))
 csrf = CSRFProtect(app)
 csrf.exempt(api)
@@ -515,15 +517,15 @@ def displayCDRS():
         if (settings.DEBUG):
             debugEndpoint()
 
-        license_status = getLicenseStatus(license_tag='DSIP_CORE')
-        if license_status == 0:
-            return render_template('license_required.html', msg='DSIP_CORE license is required to use this feature')
+        #license_status = getLicenseStatus(license_tag='DSIP_CORE')
+        #if license_status == 0:
+        #    return render_template('license_required.html', msg='DSIP_CORE license is required to use this feature')
 
-        if license_status == 1:
-            return render_template('license_required.html', msg='license is not valid, ensure your license is still active')
+        #if license_status == 1:
+        #    return render_template('license_required.html', msg='license is not valid, ensure your license is still active')
 
-        if license_status == 2:
-            return render_template('license_required.html', msg='license is associated with another machine, re-associate it with this machine first')
+        #if license_status == 2:
+        #    return render_template('license_required.html', msg='license is associated with another machine, re-associate it with this machine first')
 
 
         return render_template('cdrs.html')

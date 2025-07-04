@@ -1,0 +1,71 @@
+{% extends 'table_layout.html' %}
+
+{% block title %}Call Detail Records{% endblock %}
+
+{% block custom_css %}
+  {{ link_tag('cdrs') }}
+{% endblock %}
+
+{% block table_headers %}
+  <div>
+    <h3>Call Detail Records</h3>
+  </div>
+
+  <div class="row" style="margin-bottom: 15px;">
+    <div class="col-md-8 form-inline">
+      <div class="btn-group" id="menu" style="margin-right: 15px;">
+        <select class="btn-primary btn-md" id="endpointgroups">
+          <option class="hidden" value="0" selected disabled>Select Endpoint Group</option>
+        </select>
+        <i class="glyphicon glyphicon-refresh" id="refreshCDR"></i>
+        <i class="glyphicon glyphicon-download-alt" id="downloadCDR" title="Iniciar exportación en segundo plano"></i>
+      </div>
+
+      <div class="form-group">
+        <label for="toggle_completed_calls">Filter Calls</label>
+        <input id="toggle_completed_calls" type="checkbox" data-toggle="toggle" value="1"
+               data-on="All Calls <span class='icon-phone_enabled'></span>"
+               data-off="Billable Calls <span class='icon-money'></span>"
+               data-width="125px">
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-xs-12">
+      <div style="padding: 10px; border: 1px solid #ddd; border-radius: 4px; background-color: #f9f9f9;">
+        <p style="margin: 0;">
+          📁 Las exportaciones masivas solicitadas se generan en segundo plano. El administrador del sistema puede encontrarlas en el directorio del servidor: <code>/tmp/cdr_exports/</code>
+        </p>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+  
+{% block table %}
+  <table id="cdrs" class="table table-striped table-centered">
+    <thead>
+    <tr class='element-row'>
+      <th data-field="cdr_id">CDR ID</th>
+      <th data-field="call_start_time">Call Start</th>
+      <th data-field="call_duration">Call Duration</th>
+      <th data-field="call_direction">Call Direction</th>
+      <th data-field="src_gwgroupid" class="hidden"></th>
+      <th data-field="src_gwgroupname">Source Gateway Group</th>
+      <th data-field="dst_gwgroupid" class="hidden"></th>
+      <th data-field="dst_gwgroupname">Destination Gateway Group</th>
+      <th data-field="src_username">Source Username</th>
+      <th data-field="dst_username">Destination Username</th>
+      <th data-field="src_address">Source Address</th>
+      <th data-field="dst_address">Destination Address</th>
+      <th data-field="call_id">Call ID</th>
+    </tr>
+    </thead>
+  </table>
+{% endblock %}
+
+
+{% block custom_js %}
+  {{ script_tag('jquery.tabledit') }}
+  {{ script_tag('cdrs') }}
+{% endblock %}

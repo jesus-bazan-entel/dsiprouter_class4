@@ -4,7 +4,9 @@ import sys
 if sys.path[0] != '/etc/dsiprouter/gui':
     sys.path.insert(0, '/etc/dsiprouter/gui')
 
-import base64, bson, inspect, os
+#import base64, bson, inspect, os
+import base64, inspect, os
+from bson import json_util
 from collections import OrderedDict
 from enum import Enum
 from datetime import datetime, timedelta
@@ -899,7 +901,8 @@ def settingsToTableFormat(settings, updates=None):
     # translate db specific fields
     if isinstance(data['KAM_DB_HOST'], (list, tuple)):
         data['KAM_DB_HOST'] = ','.join(data['KAM_DB_HOST'])
-    data['DSIP_LICENSE_STORE'] = base64.b64encode(bson.dumps(data['DSIP_LICENSE_STORE']))
+    #data['DSIP_LICENSE_STORE'] = base64.b64encode(bson.dumps(data['DSIP_LICENSE_STORE']))
+    data['DSIP_LICENSE_STORE'] = base64.b64encode(json_util.dumps(data['DSIP_LICENSE_STORE']).encode('utf-8'))
 
     # order matters here, as this is used to update table settings as well
     return DsipSettings([
@@ -991,7 +994,8 @@ def settingsTableToDict(table_values, updates=None):
 
     if ',' in table_values['KAM_DB_HOST']:
         table_values['KAM_DB_HOST'] = table_values['KAM_DB_HOST'].split(',')
-    table_values['DSIP_LICENSE_STORE'] = bson.loads(base64.b64decode(table_values['DSIP_LICENSE_STORE']))
+    #table_values['DSIP_LICENSE_STORE'] = bson.loads(base64.b64decode(table_values['DSIP_LICENSE_STORE']))
+    table_values['DSIP_LICENSE_STORE'] = json_util.loads(base64.b64decode(table_values['DSIP_LICENSE_STORE']))
     return table_values
 
 

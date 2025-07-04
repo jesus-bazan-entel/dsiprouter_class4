@@ -4,57 +4,796 @@
 
 {% block custom_css %}
   {{ link_tag('cdrs') }}
+  <style>
+    /* ==========================================================================
+       CDR SPECIFIC STYLES
+       ========================================================================== */
+    
+    /* Header Section */
+    .cdr-header {
+      margin-bottom: 25px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #e7e7e7;
+    }
+    
+    .cdr-header h3 {
+      color: #333;
+      font-weight: 600;
+      margin: 0;
+      font-size: 24px;
+    }
+    
+    /* Controls Section */
+    .cdr-controls {
+      background-color: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border: 1px solid #dee2e6;
+    }
+    
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    
+    /* Endpoint Group Selector */
+    .endpoint-selector {
+      position: relative;
+    }
+    
+    .endpoint-selector select {
+      min-width: 220px;
+      padding: 8px 12px;
+      border: 1px solid #007bff;
+      border-radius: 4px;
+      background-color: #007bff;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    
+    .endpoint-selector select:focus {
+      outline: none;
+      border-color: #0056b3;
+      box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+    
+    /* Action Buttons */
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    
+    .btn-icon {
+      background: none;
+      border: none;
+      font-size: 18px;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+      color: #495057;
+    }
+    
+    .btn-icon:hover {
+      background-color: #e9ecef;
+      transform: translateY(-1px);
+    }
+    
+    .btn-refresh:hover {
+      color: #28a745;
+      background-color: #d4edda;
+    }
+    
+    .btn-download:hover {
+      color: #17a2b8;
+      background-color: #d1ecf1;
+    }
+    
+    /* Filter Section */
+    .filter-section {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-left: auto;
+    }
+    
+    .filter-section label {
+      font-weight: 500;
+      color: #495057;
+      margin-bottom: 0;
+      white-space: nowrap;
+    }
+    
+    /* Date Filters */
+    .date-filters-row {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid #dee2e6;
+    }
+    
+    .date-filters {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    
+    .date-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 150px;
+    }
+    
+    .date-group label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #495057;
+      white-space: nowrap;
+      margin-bottom: 0;
+      min-width: 35px;
+    }
+    
+    .date-group input[type="date"] {
+      padding: 6px 10px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      font-size: 13px;
+      background-color: white;
+      color: #495057;
+      min-width: 140px;
+      flex: 1;
+    }
+    
+    .date-group input[type="date"]:focus {
+      outline: none;
+      border-color: #80bdff;
+      box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+    
+    .date-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    
+    .btn-date-action {
+      padding: 6px 12px;
+      border: 1px solid #dee2e6;
+      background: white;
+      color: #495057;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    
+    .btn-date-action:hover {
+      background-color: #f8f9fa;
+      border-color: #adb5bd;
+    }
+    
+    .btn-apply-dates {
+      background-color: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+    
+    .btn-apply-dates:hover {
+      background-color: #0056b3;
+      border-color: #0056b3;
+    }
+    
+    .btn-clear-dates {
+      background-color: #6c757d;
+      color: white;
+      border-color: #6c757d;
+    }
+    
+    .btn-clear-dates:hover {
+      background-color: #545b62;
+      border-color: #545b62;
+    }
+    
+    /* Info Banner Section */
+    .info-banner-section {
+      margin-top: 20px;
+    }
+    
+    .info-banner {
+      background: linear-gradient(135deg, #e3f2fd 0%, #f8f9fa 100%);
+      border: 1px solid #b3e5fc;
+      border-left: 4px solid #2196f3;
+      border-radius: 6px;
+      padding: 15px;
+      position: relative;
+      max-width: 100%;
+    }
+    
+    .info-banner p {
+      margin: 0;
+      color: #37474f;
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: center;
+    }
+    
+    .info-banner .icon {
+      font-size: 16px;
+      margin-right: 8px;
+    }
+    
+    .info-banner code {
+      background-color: #263238;
+      color: #80cbc4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+    
+    /* Table Enhancements */
+    .table-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    
+    #cdrs {
+      margin-bottom: 0;
+    }
+    
+    #cdrs thead th {
+      background-color: #f8f9fa;
+      border-bottom: 2px solid #dee2e6;
+      font-weight: 600;
+      color: #495057;
+      padding: 12px 8px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    #cdrs tbody td {
+      padding: 10px 8px;
+      vertical-align: middle;
+      border-bottom: 1px solid #f1f3f4;
+    }
+    
+    #cdrs tbody tr:hover {
+      background-color: #f8f9fa;
+    }
+    
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .control-group {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 15px;
+      }
+      
+      .filter-section {
+        margin-left: 0;
+        justify-content: center;
+        order: 3;
+      }
+      
+      .endpoint-selector {
+        order: 1;
+      }
+      
+      .action-buttons {
+        order: 2;
+        justify-content: center;
+      }
+      
+      .endpoint-selector select {
+        width: 100%;
+      }
+      
+      .date-filters-row {
+        margin-top: 20px;
+        padding-top: 20px;
+      }
+      
+      .date-filters {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 15px;
+      }
+      
+      .date-group {
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        min-width: auto;
+      }
+      
+      .date-group label {
+        min-width: auto;
+        text-align: center;
+      }
+      
+      .date-group input[type="date"] {
+        width: 100%;
+        min-width: 200px;
+      }
+      
+      .date-actions {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      
+      .btn-date-action {
+        flex: 1;
+        min-width: 80px;
+        margin: 2px;
+      }
+      
+      .info-banner p {
+        text-align: left;
+        font-size: 13px;
+      }
+      
+      .cdr-header h3 {
+        font-size: 20px;
+      }
+    }
+    
+    @media (max-width: 1200px) {
+      .control-group {
+        flex-wrap: wrap;
+        gap: 15px;
+      }
+      
+      .date-filters-row {
+        width: 100%;
+      }
+      
+      .date-filters {
+        justify-content: center;
+      }
+      
+      .filter-section {
+        margin-left: 0;
+      }
+    }
+    
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .date-filters {
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      
+      .date-actions {
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      
+      .btn-date-action {
+        margin: 2px;
+      }
+    }
+    
+    /* Loading State */
+    .loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    
+    .loading .btn-icon {
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Accessibility */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
 {% endblock %}
 
 {% block table_headers %}
-  <div>
+  <!-- Header Section -->
+  <header class="cdr-header">
     <h3>Call Detail Records</h3>
-  </div>
+  </header>
 
-  <div class="btn-group col-sm-3" id="menu">
-    <select class="btn-primary btn-md" id="endpointgroups">
-      <option class="hidden" value="0" selected disabled>Select Endpoint Group</option>
-    </select>
-    <i class="glyphicon glyphicon glyphicon-refresh" id="refreshCDR"></i>
-    <i class="glyphicon glyphicon-download-alt" id="downloadCDR"></i>
-  </div>
+  <!-- Controls Section -->
+  <section class="cdr-controls">
+    <!-- Top Row: Endpoint Selector, Action Buttons, and Call Filter -->
+    <div class="control-group">
+      <!-- Endpoint Group Selector -->
+      <div class="endpoint-selector">
+        <label for="endpointgroups" class="sr-only">Select Endpoint Group</label>
+        <select class="btn-primary btn-md" id="endpointgroups" aria-label="Select Endpoint Group">
+          <option value="0" selected disabled>Select Endpoint Group</option>
+        </select>
+      </div>
 
-  <div>
-    <label for="toggle_completed_calls">
-    Filter Calls
-    </label>
-    <input id="toggle_completed_calls" type="checkbox" data-toggle="toggle" value="1"
-           data-on="All Calls <span class='icon-phone_enabled'></span>"
-           data-off="Billable Calls <span class='icon-money'></span>"
-           data-width="125px">
-  </div>
+      <!-- Action Buttons -->
+      <div class="action-buttons">
+        <button type="button" 
+                class="btn-icon btn-refresh" 
+                id="refreshCDR" 
+                title="Actualizar registros de llamadas"
+                aria-label="Refresh call records">
+          <i class="glyphicon glyphicon-refresh" aria-hidden="true"></i>
+        </button>
+        
+        <button type="button" 
+                class="btn-icon btn-download" 
+                id="downloadCDR" 
+                title="Iniciar exportación en segundo plano"
+                aria-label="Download call records">
+          <i class="glyphicon glyphicon-download-alt" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <!-- Filter Section -->
+      <div class="filter-section">
+        <label for="toggle_completed_calls">Filter Calls:</label>
+        <input id="toggle_completed_calls" 
+               type="checkbox" 
+               data-toggle="toggle" 
+               value="1"
+               data-on="All Calls <span class='icon-phone_enabled'></span>"
+               data-off="Billable Calls <span class='icon-money'></span>"
+               data-width="125px"
+               aria-label="Toggle between all calls and billable calls">
+      </div>
+    </div>
+
+    <!-- Middle Row: Date Filters -->
+    <div class="date-filters-row">
+      <div class="date-filters">
+        <div class="date-group">
+          <label for="date_start">From:</label>
+          <input type="date" 
+                 id="date_start" 
+                 name="date_start"
+                 aria-label="Start date filter">
+        </div>
+        
+        <div class="date-group">
+          <label for="date_end">To:</label>
+          <input type="date" 
+                 id="date_end" 
+                 name="date_end"
+                 aria-label="End date filter">
+        </div>
+        
+        <div class="date-actions">
+          <button type="button" 
+                  class="btn-date-action btn-apply-dates" 
+                  id="applyDateFilter"
+                  title="Apply date filter">
+            Apply
+          </button>
+          
+          <button type="button" 
+                  class="btn-date-action btn-clear-dates" 
+                  id="clearDateFilter"
+                  title="Clear date filter">
+            Clear
+          </button>
+          
+          <button type="button" 
+                  class="btn-date-action" 
+                  id="todayFilter"
+                  title="Filter today's calls">
+            Today
+          </button>
+          
+          <button type="button" 
+                  class="btn-date-action" 
+                  id="thisWeekFilter"
+                  title="Filter this week's calls">
+            This Week
+          </button>
+          
+          <button type="button" 
+                  class="btn-date-action" 
+                  id="thisMonthFilter"
+                  title="Filter this month's calls">
+            This Month
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
 {% endblock %}
-
-
+  
 {% block table %}
-  <table id="cdrs" class="table table-striped table-centered">
-    <thead>
-    <tr class='element-row'>
-      <th data-field="cdr_id">CDR ID</th>
-      <th data-field="call_start_time">Call Start</th>
-      <th data-field="call_duration">Call Duration</th>
-      <th data-field="call_direction">Call Direction</th>
-      <th data-field="src_gwgroupid" class="hidden"></th>
-      <th data-field="src_gwgroupname">Source Gateway Group</th>
-      <th data-field="dst_gwgroupid" class="hidden"></th>
-      <th data-field="dst_gwgroupname">Destination Gateway Group</th>
-      <th data-field="src_username">Source Username</th>
-      <th data-field="dst_username">Destination Username</th>
-      <th data-field="src_address">Source Address</th>
-      <th data-field="dst_address">Destination Address</th>
-      <th data-field="call_id">Call ID</th>
-    </tr>
-    </thead>
-  </table>
+  <!-- Information Banner - Moved to separate section -->
+  <section class="info-banner-section">
+    <aside class="info-banner" role="complementary">
+      <p>
+        <span class="icon" aria-hidden="true">📁</span>
+        <strong>Exportaciones masivas:</strong> Las exportaciones solicitadas se generan en segundo plano. 
+        El administrador del sistema puede encontrarlas en el directorio del servidor: 
+        <code>/tmp/cdr_exports/</code>
+      </p>
+    </aside>
+  </section>
+  <div class="table-container">
+    <table id="cdrs" class="table table-striped table-centered" role="table">
+      <thead>
+        <tr class='element-row' role="row">
+          <th data-field="cdr_id" role="columnheader" scope="col">
+            CDR ID
+          </th>
+          <th data-field="call_start_time" role="columnheader" scope="col">
+            Call Start
+          </th>
+          <th data-field="call_duration" role="columnheader" scope="col">
+            Call Duration
+          </th>
+          <th data-field="call_direction" role="columnheader" scope="col">
+            Call Direction
+          </th>
+          <th data-field="src_gwgroupid" class="hidden" role="columnheader" scope="col">
+            Source Gateway Group ID
+          </th>
+          <th data-field="src_gwgroupname" role="columnheader" scope="col">
+            Source Gateway Group
+          </th>
+          <th data-field="dst_gwgroupid" class="hidden" role="columnheader" scope="col">
+            Destination Gateway Group ID
+          </th>
+          <th data-field="dst_gwgroupname" role="columnheader" scope="col">
+            Destination Gateway Group
+          </th>
+          <th data-field="src_username" role="columnheader" scope="col">
+            Source Username
+          </th>
+          <th data-field="dst_username" role="columnheader" scope="col">
+            Destination Username
+          </th>
+          <th data-field="src_address" role="columnheader" scope="col">
+            Source Address
+          </th>
+          <th data-field="dst_address" role="columnheader" scope="col">
+            Destination Address
+          </th>
+          <th data-field="call_id" role="columnheader" scope="col">
+            Call ID
+          </th>
+        </tr>
+      </thead>
+      <tbody role="rowgroup">
+        <!-- Los datos se cargarán dinámicamente -->
+      </tbody>
+    </table>
+  </div>
 {% endblock %}
-
 
 {% block custom_js %}
   {{ script_tag('jquery.tabledit') }}
   {{ script_tag('cdrs') }}
+  
+  <script>
+    $(document).ready(function() {
+      // Initialize components
+      initializeCDRComponents();
+      
+      // Event handlers
+      setupEventHandlers();
+    });
+    
+    function initializeCDRComponents() {
+      // Initialize toggle switch
+      if ($.fn.bootstrapToggle) {
+        $('#toggle_completed_calls').bootstrapToggle();
+      }
+    }
+    
+    function setupEventHandlers() {
+      // Refresh button
+      $('#refreshCDR').on('click', function() {
+        const $btn = $(this);
+        $btn.addClass('loading');
+        
+        // Simular carga
+        setTimeout(function() {
+          $btn.removeClass('loading');
+        }, 1000);
+        
+        console.log('Refreshing CDR data...');
+      });
+      
+      $('#downloadCDR').on('click', function() {
+          const $btn = $(this);
+          const gwgroupid = $('#endpointgroups').val();
+
+          if (!gwgroupid || gwgroupid === "0") {
+              alert('Please select an Endpoint Group first.');
+              return;
+          }
+
+          $btn.addClass('loading').prop('disabled', true);
+          
+          // Recolectar filtros
+          const exportParams = {
+              date_start: $('#date_start').val() || null,
+              date_end: $('#date_end').val() || null,
+              nonCompletedCalls: $('#toggle_completed_calls').prop('checked')
+          };
+          
+          console.log('Starting background export with params:', exportParams);
+
+          // Llamada AJAX al endpoint de exportación
+          $.ajax({
+              url: `/api/v1/cdrs/endpointgroups/${gwgroupid}/export`,
+              type: 'POST',
+              contentType: 'application/json',
+              data: JSON.stringify(exportParams),
+              success: function(response) {
+                  console.log('Export started successfully:', response);
+                  // Notificar al usuario que la exportación comenzó
+                  alert('Export started successfully!\nThe file will be available in /tmp/cdr_exports/ shortly.');
+              },
+              error: function(xhr, status, error) {
+                  console.error('Export failed:', error);
+                  const errorMsg = xhr.responseJSON ? xhr.responseJSON.msg : 'An unknown error occurred.';
+                  alert(`Export failed: ${errorMsg}`);
+              },
+              complete: function() {
+                  // Quitar animación después de 2 segundos para dar feedback visual
+                  setTimeout(function() {
+                      $btn.removeClass('loading').prop('disabled', false);
+                  }, 2000);
+              }
+          });
+      });
+
+      // Endpoint groups selector
+      $('#endpointgroups').on('change', function() {
+        const selectedValue = $(this).val();
+        console.log('Endpoint group changed:', selectedValue);
+      });
+      
+      // Filter toggle
+      $('#toggle_completed_calls').on('change', function() {
+        const isChecked = $(this).prop('checked');
+        console.log('Filter changed:', isChecked ? 'All Calls' : 'Billable Calls');
+      });
+      
+      // Date filter handlers
+      $('#applyDateFilter').on('click', function() {
+        applyDateFilter();
+      });
+      
+      $('#clearDateFilter').on('click', function() {
+        clearDateFilter();
+      });
+      
+      // Quick date filter buttons
+      $('#todayFilter').on('click', function() {
+        setQuickDateFilter('today');
+      });
+      
+      $('#thisWeekFilter').on('click', function() {
+        setQuickDateFilter('week');
+      });
+      
+      $('#thisMonthFilter').on('click', function() {
+        setQuickDateFilter('month');
+      });
+      
+      // Auto-apply when date inputs change
+      $('#date_start, #date_end').on('change', function() {
+        validateDateRange();
+      });
+    }
+    
+    function applyDateFilter() {
+      const startDate = $('#date_start').val();
+      const endDate = $('#date_end').val();
+      
+      if (!startDate && !endDate) {
+        alert('Please select at least one date to filter.');
+        return;
+      }
+      
+      if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+        alert('Start date cannot be later than end date.');
+        return;
+      }
+      
+      console.log('Applying date filter:', {
+        start: startDate,
+        end: endDate
+      });
+      
+      // Aquí iría la lógica para filtrar la tabla
+      // Ejemplo: recargar datos con nuevos parámetros de fecha
+      // reloadCDRTable({ dateStart: startDate, dateEnd: endDate });
+    }
+    
+    function clearDateFilter() {
+      $('#date_start').val('');
+      $('#date_end').val('');
+      
+      console.log('Date filter cleared');
+      
+      // Aquí iría la lógica para recargar la tabla sin filtros de fecha
+      // reloadCDRTable({ dateStart: null, dateEnd: null });
+    }
+    
+    function setQuickDateFilter(period) {
+      const today = new Date();
+      let startDate, endDate;
+      
+      switch (period) {
+        case 'today':
+          startDate = endDate = formatDate(today);
+          break;
+          
+        case 'week':
+          const weekStart = new Date(today);
+          weekStart.setDate(today.getDate() - today.getDay());
+          startDate = formatDate(weekStart);
+          endDate = formatDate(today);
+          break;
+          
+        case 'month':
+          const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+          startDate = formatDate(monthStart);
+          endDate = formatDate(today);
+          break;
+      }
+      
+      $('#date_start').val(startDate);
+      $('#date_end').val(endDate);
+      
+      // Auto-apply the filter
+      applyDateFilter();
+    }
+    
+    function formatDate(date) {
+      return date.toISOString().split('T')[0];
+    }
+    
+    function validateDateRange() {
+      const startDate = $('#date_start').val();
+      const endDate = $('#date_end').val();
+      
+      if (startDate && endDate) {
+        if (new Date(startDate) > new Date(endDate)) {
+          $('#date_end').css('border-color', '#dc3545');
+          return false;
+        } else {
+          $('#date_start, #date_end').css('border-color', '#ced4da');
+          return true;
+        }
+      }
+      
+      return true;
+    }
+  </script>
 {% endblock %}

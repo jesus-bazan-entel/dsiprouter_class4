@@ -29,6 +29,7 @@ from util import kamtls, letsencrypt
 from util.cron import addTaggedCronjob, updateTaggedCronjob, deleteTaggedCronjob
 from sysloginit import initSyslogLogger
 import settings
+from datetime import datetime, timezone, timedelta
 
 api = Blueprint('api', __name__)
 
@@ -2520,9 +2521,6 @@ def fetchNumberEnrichment(request_payload=None):
         return showApiError(ex, response_payload)
 
 
-# TODO: standardize response payload (use data param)
-# TODO: stop shadowing builtin functions -> type == builtin
-# TODO: too manu use cases in this one function, split it up into constituent pieces
 def generateCDRS(
     gwgroupid,
     report_type=None,
@@ -2532,31 +2530,43 @@ def generateCDRS(
     nonCompletedCalls=None,
     run_standalone=False,
     filter_params=None,
+    date_start=None,
+    date_end=None,
 ):
     """
-    Generate CDRs Report for a gwgroup
+    Generate CDRs Report for a gwgroup with enhanced date filtering
 
     :param gwgroupid:       gwgroup to generate cdr's for
     :type gwgroupid:        int|str
-    :param report_type:            type of report (json|csv)
-    :type report_type:             str
-    :param send_email:           whether the report should be emailed
-    :type send_email:            bool
-    :param dtfilter:        time before which cdr's are not returned
+    :param report_type:     type of report (json|csv)
+    :type report_type:      str
+    :param send_email:      whether the report should be emailed
+    :type send_email:       bool
+    :param dtfilter:        time before which cdr's are not returned (legacy)
     :type dtfilter:         datetime
-    :param cdrfilter:       comma seperated cdr id's to include
+    :param cdrfilter:       comma separated cdr id's to include
     :type cdrfilter:        str
+    :param date_start:      start date filter
+    :type date_start:       datetime
+    :param date_end:        end date filter
+    :type date_end:         datetime
     :return:                returns a json response or file
     :rtype:                 flask.Response
     """
 
     # if run in standalone mode we need to setup logging
-    initSyslogLogger()
+    if run_standalone:
+        initSyslogLogger()
 
     db = DummySession()
 
     # defaults.. keep data returned separate from returned metadata
-    response_payload = {'error': None, 'msg': '', 'kamreload': getSharedMemoryDict(STATE_SHMEM_NAME)['kam_reload_required'], 'data': []}
+    response_payload = {
+        'error': None, 
+        'msg': '', 
+        'kamreload': getSharedMemoryDict(STATE_SHMEM_NAME)['kam_reload_required'], 
+        'data': []
+    }
     # define here so we can cleanup in finally statement
     csv_file = ''
 
@@ -2571,8 +2581,15 @@ def generateCDRS(
             report_type = report_type.lower()
         if send_email is None:
             send_email = False
-        if dtfilter is None:
-            dtfilter = datetime.min
+        
+        # Enhanced date filtering logic
+        if date_start is None and dtfilter is not None:
+            date_start = dtfilter
+        if date_start is None:
+            date_start = datetime.min
+        if date_end is None:
+            date_end = datetime.max
+            
         if cdrfilter is None:
             cdrfilter = tuple()
         else:
@@ -2587,55 +2604,64 @@ def generateCDRS(
             gwgroupName = strFieldsToDict(gwgroup.description)['name']
         else:
             response_payload['status'] = "0"
-            response_payload['message'] = "Endpont group doesn't exist"
+            response_payload['message'] = "Endpoint group doesn't exist"
             if run_standalone:
-                IO.logerr(f'Endpont group {gwgroupid} does not exist')
+                IO.logerr(f'Endpoint group {gwgroupid} does not exist')
                 return None
             return jsonify(response_payload)
 
+        # Build SQL parameters with enhanced date filtering
+        sql_params = {
+            "gwgroupid": gwgroupid,
+            "date_start": date_start,
+            "date_end": date_end
+        }
+        
+        # Build base conditions with enhanced date filtering
+        base_conditions = "WHERE (t2.id = :gwgroupid OR t3.id = :gwgroupid)"
+        
+        if date_start != datetime.min:
+            base_conditions += " AND t1.call_start_time >= :date_start"
+            
+        if date_end != datetime.max:
+            base_conditions += " AND t1.call_start_time <= :date_end"
+        
         if len(cdrfilter) > 0:
-            sql_params = {"gwgroupid": gwgroupid, "dtfilter": dtfilter, "cdrfilter": cdrfilter}
-            query1 = (
-                """SELECT t1.cdr_id, t1.call_start_time, t1.duration AS call_duration, t1.calltype AS call_direction,
-                          t2.id AS src_gwgroupid, substring_index(substring_index(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
-                          t3.id AS dst_gwgroupid, substring_index(substring_index(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
-                          t1.src_username, t1.dst_username, t1.src_ip AS src_address, t1.dst_domain AS dst_address, t1.sip_call_id AS call_id
-                FROM cdrs t1
-                JOIN dr_gw_lists t2 ON (t1.src_gwgroupid = t2.id)
-                JOIN dr_gw_lists t3 ON (t1.dst_gwgroupid = t3.id)
-                WHERE (t2.id = :gwgroupid OR t3.id = :gwgroupid) AND t1.call_start_time >= :dtfilter AND t1.cdr_id IN :cdrfilter
-                ORDER BY t1.call_start_time DESC"""
-            )
-        else:
-            sql_params = {"gwgroupid": gwgroupid, "dtfilter": dtfilter}
-            query1 = (
-                """SELECT t1.cdr_id, t1.call_start_time, t1.duration AS call_duration, t1.calltype AS call_direction,
-                          t2.id AS src_gwgroupid, substring_index(substring_index(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
-                          t3.id AS dst_gwgroupid, substring_index(substring_index(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
-                          t1.src_username, t1.dst_username, t1.src_ip AS src_address, t1.dst_domain AS dst_address, t1.sip_call_id AS call_id
-                FROM cdrs t1
-                JOIN dr_gw_lists t2 ON (t1.src_gwgroupid = t2.id)
-                JOIN dr_gw_lists t3 ON (t1.dst_gwgroupid = t3.id)
-                WHERE (t2.id = :gwgroupid OR t3.id = :gwgroupid) AND t1.call_start_time >= :dtfilter
-                ORDER BY t1.call_start_time DESC"""
-            )
+            sql_params["cdrfilter"] = cdrfilter
+            base_conditions += " AND t1.cdr_id IN :cdrfilter"
+
+        query1 = f"""
+        SELECT t1.cdr_id, t1.call_start_time, t1.duration AS call_duration, t1.calltype AS call_direction,
+               t2.id AS src_gwgroupid, substring_index(substring_index(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
+               t3.id AS dst_gwgroupid, substring_index(substring_index(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
+               t1.src_username, t1.dst_username, t1.src_ip AS src_address, t1.dst_domain AS dst_address, t1.sip_call_id AS call_id
+        FROM cdrs t1
+        JOIN dr_gw_lists t2 ON (t1.src_gwgroupid = t2.id)
+        JOIN dr_gw_lists t3 ON (t1.dst_gwgroupid = t3.id)
+        {base_conditions}
+        ORDER BY t1.call_start_time DESC
+        """
 
         if nonCompletedCalls:
-            query2 = (
-                """SELECT acc.id AS cdr_id, acc.time, 0, acc.calltype,
-                acc.src_gwgroupid, SUBSTRING_INDEX(SUBSTRING_INDEX(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
-                acc.dst_gwgroupid, SUBSTRING_INDEX(SUBSTRING_INDEX(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
-                acc.src_user,acc.dst_user,acc.src_ip,acc.dst_domain,acc.callid
-                FROM acc
-                JOIN dr_gw_lists t2 ON (acc.src_gwgroupid = t2.id)
-                LEFT JOIN dr_gw_lists t3 ON (acc.dst_gwgroupid = t3.id)
-                WHERE (t2.id = :gwgroupid OR t3.id = :gwgroupid) AND acc.time >= :dtfilter
-                ORDER BY acc.time DESC"""
-            )
+            # Adjust conditions for acc table
+            acc_conditions = base_conditions.replace('t1.call_start_time', 'acc.time').replace('t1.cdr_id', 'acc.id')
+            
+            query2 = f"""
+            SELECT acc.id AS cdr_id, acc.time, 0, acc.calltype,
+                   acc.src_gwgroupid, SUBSTRING_INDEX(SUBSTRING_INDEX(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
+                   acc.dst_gwgroupid, SUBSTRING_INDEX(SUBSTRING_INDEX(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
+                   acc.src_user,acc.dst_user,acc.src_ip,acc.dst_domain,acc.callid
+            FROM acc
+            JOIN dr_gw_lists t2 ON (acc.src_gwgroupid = t2.id)
+            LEFT JOIN dr_gw_lists t3 ON (acc.dst_gwgroupid = t3.id)
+            {acc_conditions}
+            ORDER BY acc.time DESC
+            """
             sql = f'SELECT SQL_CALC_FOUND_ROWS * FROM (({query1}) UNION ({query2})) t_all'
         else:
             sql = f'SELECT SQL_CALC_FOUND_ROWS * FROM ({query1}) t_all'
 
+        # Add search filtering
         if filter_params['searching']:
             if filter_params['search_regex']:
                 sql_params['search_val'] = filter_params['search_val']
@@ -2667,23 +2693,25 @@ def generateCDRS(
                 OR `dst_address` LIKE :search_val
                 OR `call_id` LIKE :search_val
                 '''
+        
+        # Add ordering
         if filter_params['ordering']:
             sql_params['order_col'] = filter_params['order_col']
             if filter_params['order_dir'] == 'desc':
                 sql = sql + ' ORDER BY :order_col DESC'
             else:
                 sql = sql + ' ORDER BY :order_col ASC'
+        
+        # Add pagination
         if filter_params['paging']:
             sql_params['page_start'] = filter_params['page_start']
             sql_params['page_len'] = filter_params['page_len']
             sql = sql + ' LIMIT :page_len OFFSET :page_start'
+        
         sql = text(sql)
 
         rows = db.execute(sql, sql_params).all()
         total_rows = db.execute(text('SELECT FOUND_ROWS()')).scalar()
-        # TODO: does not work as described by datatables, clientside JS expects the count before limiting
-        # only effects the text displayed on the bottom left (filter shown when searching)
-        #filtered_rows = len(rows)
         filtered_rows = total_rows
 
         cdrs = []
@@ -2692,10 +2720,23 @@ def generateCDRS(
             'src_gwgroupname', 'dst_gwgroupid', 'dst_gwgroupname', 'src_username',
             'dst_username', 'src_address', 'dst_address', 'call_id'
         ]
+        
         for row in rows:
             data = {}
             data['cdr_id'] = int(row[0])
-            data['call_start_time'] = row[1]
+
+            # Convert date from GMT to GMT-5
+            if row[1] is not None:
+                gmt_datetime = row[1]
+                if isinstance(gmt_datetime, str):
+                    gmt_datetime = datetime.fromisoformat(gmt_datetime.replace('Z', '+00:00'))
+                
+                # Convert to GMT-5
+                gmt_minus_5 = gmt_datetime.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=-5)))
+                data['call_start_time'] = gmt_minus_5.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                data['call_start_time'] = row[1]
+
             data['call_duration'] = str(row[2])
             data['call_direction'] = row[3]
             data['src_gwgroupid'] = row[4]
@@ -2717,9 +2758,18 @@ def generateCDRS(
         # Convert array of dicts to csv format
         if report_type == "csv":
             now = time.strftime('%Y%m%d-%H%M%S')
-            filename = secure_filename('{}_{}.csv'.format(gwgroupName, now))
-            csv_file = '/tmp/{}'.format(filename)
-            with open(csv_file, 'w', newline='') as csv_fp:
+            
+            # Add date range to filename
+            date_suffix = ''
+            if date_start != datetime.min or date_end != datetime.max:
+                start_str = date_start.strftime('%Y%m%d') if date_start != datetime.min else 'beginning'
+                end_str = date_end.strftime('%Y%m%d') if date_end != datetime.max else 'now'
+                date_suffix = f'_{start_str}_to_{end_str}'
+            
+            filename = secure_filename(f'{gwgroupName}_{now}{date_suffix}.csv')
+            csv_file = f'/tmp/{filename}'
+            
+            with open(csv_file, 'w', newline='', encoding='utf-8') as csv_fp:
                 if len(cdrs) > 0:
                     dict_writer = csv.DictWriter(csv_fp, fieldnames=cdrs[0].keys())
                     dict_writer.writeheader()
@@ -2769,16 +2819,630 @@ def generateCDRS(
             os.remove(csv_file)
 
 
+@api.route("/api/v1/cdrs/endpointgroups/<int:gwgroupid>/export", methods=['POST'])
+@api_security
+def exportGatewayGroupCDRS(gwgroupid):
+    """
+    Start background export of CDRs for a gateway group with date filters - VERSIÓN CORREGIDA
+    """
+    
+    print(f"[CDR_EXPORT] Starting export for gwgroupid: {gwgroupid}")
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+
+        # Get request data
+        request_payload = getRequestData()
+        print(f"[CDR_EXPORT] Request payload: {request_payload}")
+        print(f"[CDR_EXPORT] Request payload type: {type(request_payload)}")
+        
+        # Extract parameters with better handling
+        cdrfilter = request_payload.get('filter', '')
+        date_start = request_payload.get('date_start', None)
+        date_end = request_payload.get('date_end', None)
+        nonCompletedCalls = request_payload.get('nonCompletedCalls', True)
+        
+        print(f"[CDR_EXPORT] Raw cdrfilter: {cdrfilter}, type: {type(cdrfilter)}")
+        
+        # FIX: Normalizar cdrfilter a string
+        if isinstance(cdrfilter, list):
+            cdrfilter = ','.join([str(x) for x in cdrfilter if x])
+        elif cdrfilter is None:
+            cdrfilter = ''
+        else:
+            cdrfilter = str(cdrfilter)
+        
+        print(f"[CDR_EXPORT] Normalized cdrfilter: {cdrfilter}")
+        
+        # Validate gwgroupid
+        if not gwgroupid:
+            raise http_exceptions.BadRequest("Gateway group ID is required")
+            
+        # Parse date filters
+        dtfilter_start = None
+        dtfilter_end = None
+        
+        if date_start:
+            try:
+                dtfilter_start = datetime.strptime(date_start, "%Y-%m-%d")
+                print(f"[CDR_EXPORT] Parsed start date: {dtfilter_start}")
+            except ValueError:
+                raise http_exceptions.BadRequest("Invalid start date format. Use YYYY-MM-DD")
+                
+        if date_end:
+            try:
+                dtfilter_end = datetime.strptime(date_end, "%Y-%m-%d")
+                dtfilter_end = dtfilter_end.replace(hour=23, minute=59, second=59)
+                print(f"[CDR_EXPORT] Parsed end date: {dtfilter_end}")
+            except ValueError:
+                raise http_exceptions.BadRequest("Invalid end date format. Use YYYY-MM-DD")
+        
+        # Validate date range
+        if dtfilter_start and dtfilter_end and dtfilter_start > dtfilter_end:
+            raise http_exceptions.BadRequest("Start date cannot be later than end date")
+        
+        # Generate export ID for tracking
+        export_id = f"export_{gwgroupid}_{int(time.time())}"
+        print(f"[CDR_EXPORT] Export ID: {export_id}")
+        
+        # Create export directory
+        export_dir = '/tmp/cdr_exports'
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir, mode=0o755)
+            try:
+                import pwd, grp
+                dsiprouter_uid = pwd.getpwnam('dsiprouter').pw_uid
+                dsiprouter_gid = grp.getgrnam('dsiprouter').gr_gid
+                os.chown(export_dir, dsiprouter_uid, dsiprouter_gid)
+            except:
+                pass  # Si no puede cambiar owner, continúa
+        
+        # Call the CSV generation function directly
+        csv_file = generateCSVExport(
+            gwgroupid=gwgroupid,
+            export_id=export_id,
+            cdrfilter=cdrfilter,
+            date_start=dtfilter_start,
+            date_end=dtfilter_end,
+            nonCompletedCalls=nonCompletedCalls,
+            export_dir=export_dir
+        )
+        
+        if csv_file and os.path.exists(csv_file):
+            file_size = os.path.getsize(csv_file)
+            print(f"[CDR_EXPORT] Success! File: {csv_file}, Size: {file_size}")
+            
+            # Create status file
+            status_file = os.path.join(export_dir, f'{export_id}.status')
+            with open(status_file, 'w') as f:
+                json.dump({
+                    'export_id': export_id,
+                    'status': 'completed',
+                    'file_path': csv_file,
+                    'completion_time': datetime.now().isoformat(),
+                    'gwgroupid': gwgroupid,
+                    'file_size': file_size
+                }, f, indent=2)
+            
+            return createApiResponse(
+                msg='CDR export completed successfully',
+                data=[{
+                    'export_id': export_id,
+                    'status': 'completed',
+                    'file_path': csv_file,
+                    'file_size': file_size,
+                    'gwgroupid': gwgroupid
+                }]
+            )
+        else:
+            print(f"[CDR_EXPORT] Failed to generate CSV")
+            return createApiResponse(
+                msg='Export failed - no data or file creation error',
+                data=[{
+                    'export_id': export_id,
+                    'status': 'error',
+                    'error': 'No data found or file creation failed'
+                }],
+                status_code=StatusCodes.HTTP_INTERNAL_SERVER_ERROR
+            )
+        
+    except Exception as ex:
+        print(f"[CDR_EXPORT] Exception: {str(ex)}")
+        import traceback
+        traceback.print_exc()
+        return showApiError(ex)
+        
+
+def generateCSVExport(gwgroupid, export_id, cdrfilter=None, date_start=None, date_end=None, 
+                     nonCompletedCalls=True, export_dir='/tmp/cdr_exports'):
+    """
+    Generate CSV export of CDRs - VERSIÓN CORREGIDA
+    """
+    print(f"[CSV_GEN] Starting CSV generation...")
+    print(f"[CSV_GEN] gwgroupid: {gwgroupid}")
+    print(f"[CSV_GEN] cdrfilter type: {type(cdrfilter)}, value: {cdrfilter}")
+    print(f"[CSV_GEN] date_start: {date_start}")
+    print(f"[CSV_GEN] date_end: {date_end}")
+    
+    db = DummySession()
+    
+    try:
+        db = startSession()
+        
+        # Get gateway group name
+        gwgroup = db.query(GatewayGroups).filter(GatewayGroups.id == gwgroupid).first()
+        if gwgroup is not None:
+            gwgroupName = strFieldsToDict(gwgroup.description).get('name', f'Group_{gwgroupid}')
+        else:
+            gwgroupName = f'Group_{gwgroupid}'
+        
+        print(f"[CSV_GEN] Gateway group name: {gwgroupName}")
+        
+        # Build query parameters
+        sql_params = {"gwgroupid": gwgroupid}
+        where_conditions = ["(t2.id = :gwgroupid OR t3.id = :gwgroupid)"]
+        
+        if date_start:
+            where_conditions.append("t1.call_start_time >= :date_start")
+            sql_params["date_start"] = date_start
+            
+        if date_end:
+            where_conditions.append("t1.call_start_time <= :date_end")
+            sql_params["date_end"] = date_end
+        
+        # FIX: Manejar cdrfilter correctamente según su tipo
+        if cdrfilter:
+            if isinstance(cdrfilter, str):
+                # Si es string, procesarlo como antes
+                if cdrfilter.strip():
+                    cdr_ids = tuple(cdrfilter.split(','))
+                    if cdr_ids and cdr_ids != ('',):
+                        where_conditions.append("t1.cdr_id IN :cdr_ids")
+                        sql_params["cdr_ids"] = cdr_ids
+                        print(f"[CSV_GEN] CDR filter (string): {cdr_ids}")
+            elif isinstance(cdrfilter, list):
+                # Si es lista, usarla directamente
+                if cdrfilter and len(cdrfilter) > 0:
+                    # Filtrar valores vacíos
+                    cdr_ids = tuple([str(x).strip() for x in cdrfilter if str(x).strip()])
+                    if cdr_ids:
+                        where_conditions.append("t1.cdr_id IN :cdr_ids")
+                        sql_params["cdr_ids"] = cdr_ids
+                        print(f"[CSV_GEN] CDR filter (list): {cdr_ids}")
+            else:
+                print(f"[CSV_GEN] Warning: Unexpected cdrfilter type: {type(cdrfilter)}")
+        
+        where_clause = " AND ".join(where_conditions)
+        print(f"[CSV_GEN] Where clause: {where_clause}")
+        
+        # Main CDR query
+        query1 = f"""
+        SELECT t1.cdr_id, t1.call_start_time, t1.duration AS call_duration, 
+               t1.calltype AS call_direction,
+               t2.id AS src_gwgroupid, 
+               substring_index(substring_index(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
+               t3.id AS dst_gwgroupid, 
+               substring_index(substring_index(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
+               t1.src_username, t1.dst_username, t1.src_ip AS src_address, 
+               t1.dst_domain AS dst_address, t1.sip_call_id AS call_id
+        FROM cdrs t1
+        JOIN dr_gw_lists t2 ON (t1.src_gwgroupid = t2.id)
+        JOIN dr_gw_lists t3 ON (t1.dst_gwgroupid = t3.id)
+        WHERE {where_clause}
+        ORDER BY t1.call_start_time DESC
+        """
+        #LIMIT 10000
+        
+        if nonCompletedCalls:
+            # Add non-completed calls from acc table
+            acc_where_clause = where_clause.replace('t1.', 'acc.')
+            query2 = f"""
+            SELECT acc.id AS cdr_id, acc.time AS call_start_time, 0 AS call_duration, 
+                   acc.calltype AS call_direction,
+                   acc.src_gwgroupid, 
+                   SUBSTRING_INDEX(SUBSTRING_INDEX(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
+                   acc.dst_gwgroupid, 
+                   SUBSTRING_INDEX(SUBSTRING_INDEX(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
+                   acc.src_user AS src_username, acc.dst_user AS dst_username, 
+                   acc.src_ip AS src_address, acc.dst_domain AS dst_address, 
+                   acc.callid AS call_id
+            FROM acc
+            JOIN dr_gw_lists t2 ON (acc.src_gwgroupid = t2.id)
+            LEFT JOIN dr_gw_lists t3 ON (acc.dst_gwgroupid = t3.id)
+            WHERE {acc_where_clause}
+            ORDER BY acc.time DESC
+            """
+            #LIMIT 10000
+            
+            #final_query = f"({query1}) UNION ({query2}) ORDER BY call_start_time DESC LIMIT 10000"
+            final_query = f"({query1}) UNION ({query2}) ORDER BY call_start_time DESC"
+        else:
+            final_query = query1
+        
+        print(f"[CSV_GEN] Executing query with params: {sql_params}")
+        
+        result = db.execute(text(final_query), sql_params)
+        rows = result.fetchall()
+        
+        print(f"[CSV_GEN] Found {len(rows)} records")
+        
+        if len(rows) == 0:
+            print(f"[CSV_GEN] No records found")
+            return None
+        
+        # Create CSV file
+        timestamp = int(time.time())
+        date_suffix = ''
+        if date_start or date_end:
+            start_str = date_start.strftime('%Y%m%d') if date_start else 'beginning'
+            end_str = date_end.strftime('%Y%m%d') if date_end else 'now'
+            date_suffix = f'_{start_str}_to_{end_str}'
+        
+        filename = secure_filename(f'{gwgroupName}_CDR_{timestamp}{date_suffix}.csv')
+        csv_file = os.path.join(export_dir, filename)
+        
+        print(f"[CSV_GEN] Creating CSV file: {csv_file}")
+        
+        # Write CSV
+        import csv
+        with open(csv_file, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = [
+                'cdr_id', 'call_start_time', 'call_duration', 'call_direction',
+                'src_gwgroupid', 'src_gwgroupname', 'dst_gwgroupid', 'dst_gwgroupname',
+                'src_username', 'dst_username', 'src_address', 'dst_address', 'call_id'
+            ]
+            
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for row in rows:
+                # Convert timezone from GMT to GMT-5
+                call_time = row[1]
+                if call_time:
+                    try:
+                        if isinstance(call_time, str):
+                            call_time = datetime.fromisoformat(call_time.replace('Z', '+00:00'))
+                        
+                        # Convert to GMT-5
+                        gmt_minus_5 = call_time.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=-5)))
+                        formatted_time = gmt_minus_5.strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        formatted_time = str(call_time)
+                else:
+                    formatted_time = ''
+                
+                writer.writerow({
+                    'cdr_id': row[0] or '',
+                    'call_start_time': formatted_time,
+                    'call_duration': str(row[2]) if row[2] is not None else '0',
+                    'call_direction': row[3] or '',
+                    'src_gwgroupid': row[4] or '',
+                    'src_gwgroupname': row[5] or '',
+                    'dst_gwgroupid': row[6] or '',
+                    'dst_gwgroupname': row[7] or '',
+                    'src_username': row[8] or '',
+                    'dst_username': row[9] or '',
+                    'src_address': row[10] or '',
+                    'dst_address': row[11] or '',
+                    'call_id': row[12] or ''
+                })
+        
+        file_size = os.path.getsize(csv_file)
+        print(f"[CSV_GEN] CSV file created successfully: {csv_file} ({file_size} bytes)")
+        
+        return csv_file
+        
+    except Exception as e:
+        print(f"[CSV_GEN] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+    finally:
+        db.close()
+
+
+# Modificar la función generateCDRS para soportar filtros de fecha mejorados
+def generateCDRSWithDateFilters(
+    gwgroupid,
+    export_id=None,
+    cdrfilter=None,
+    date_start=None,
+    date_end=None,
+    nonCompletedCalls=None,
+    run_standalone=False
+):
+    """
+    Generate CDRs Report for a gwgroup with enhanced date filtering
+    
+    :param gwgroupid:       gwgroup to generate cdr's for
+    :type gwgroupid:        int|str
+    :param export_id:       unique export identifier
+    :type export_id:        str
+    :param cdrfilter:       comma separated cdr id's to include
+    :type cdrfilter:        str
+    :param date_start:      start date filter
+    :type date_start:       datetime
+    :param date_end:        end date filter
+    :type date_end:         datetime
+    :param nonCompletedCalls: include non-completed calls
+    :type nonCompletedCalls: bool
+    :param run_standalone:  run in standalone mode
+    :type run_standalone:   bool
+    :return:                export file path or None
+    :rtype:                 str|None
+    """
+    
+    # Setup logging for standalone mode
+    if run_standalone:
+        initSyslogLogger()
+
+    db = DummySession()
+    csv_file = ''
+
+    try:
+        db = startSession()
+
+        if isinstance(gwgroupid, int):
+            gwgroupid = str(gwgroupid)
+        if date_start is None:
+            date_start = datetime.min
+        if date_end is None:
+            date_end = datetime.max
+        if cdrfilter is None:
+            cdrfilter = tuple()
+        else:
+            cdrfilter = tuple(cdrfilter.split(','))
+        if nonCompletedCalls is None:
+            nonCompletedCalls = True
+
+        # Get gateway group info
+        gwgroup = db.query(GatewayGroups).filter(GatewayGroups.id == gwgroupid).first()
+        if gwgroup is not None:
+            gwgroupName = strFieldsToDict(gwgroup.description)['name']
+        else:
+            if run_standalone:
+                IO.logerr(f'Endpoint group {gwgroupid} does not exist')
+            return None
+
+        # Build SQL query with enhanced date filtering
+        sql_params = {
+            "gwgroupid": gwgroupid, 
+            "date_start": date_start,
+            "date_end": date_end
+        }
+        
+        # Base query with date range filtering
+        base_conditions = "WHERE (t2.id = :gwgroupid OR t3.id = :gwgroupid)"
+        
+        if date_start != datetime.min:
+            base_conditions += " AND t1.call_start_time >= :date_start"
+            
+        if date_end != datetime.max:
+            base_conditions += " AND t1.call_start_time <= :date_end"
+        
+        if len(cdrfilter) > 0:
+            sql_params["cdrfilter"] = cdrfilter
+            base_conditions += " AND t1.cdr_id IN :cdrfilter"
+
+        query1 = f"""
+        SELECT t1.cdr_id, t1.call_start_time, t1.duration AS call_duration, 
+               t1.calltype AS call_direction,
+               t2.id AS src_gwgroupid, 
+               substring_index(substring_index(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
+               t3.id AS dst_gwgroupid, 
+               substring_index(substring_index(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
+               t1.src_username, t1.dst_username, t1.src_ip AS src_address, 
+               t1.dst_domain AS dst_address, t1.sip_call_id AS call_id
+        FROM cdrs t1
+        JOIN dr_gw_lists t2 ON (t1.src_gwgroupid = t2.id)
+        JOIN dr_gw_lists t3 ON (t1.dst_gwgroupid = t3.id)
+        {base_conditions}
+        ORDER BY t1.call_start_time DESC
+        """
+
+        if nonCompletedCalls:
+            # Modify conditions for acc table
+            acc_conditions = base_conditions.replace('t1.call_start_time', 'acc.time').replace('t1.cdr_id', 'acc.id')
+            
+            query2 = f"""
+            SELECT acc.id AS cdr_id, acc.time, 0, acc.calltype,
+                   acc.src_gwgroupid, 
+                   SUBSTRING_INDEX(SUBSTRING_INDEX(t2.description, 'name:', -1), ',', 1) AS src_gwgroupname,
+                   acc.dst_gwgroupid, 
+                   SUBSTRING_INDEX(SUBSTRING_INDEX(t3.description, 'name:', -1), ',', 1) AS dst_gwgroupname,
+                   acc.src_user, acc.dst_user, acc.src_ip, acc.dst_domain, acc.callid
+            FROM acc
+            JOIN dr_gw_lists t2 ON (acc.src_gwgroupid = t2.id)
+            LEFT JOIN dr_gw_lists t3 ON (acc.dst_gwgroupid = t3.id)
+            {acc_conditions}
+            ORDER BY acc.time DESC
+            """
+            sql = f'SELECT * FROM (({query1}) UNION ({query2})) t_all ORDER BY call_start_time DESC'
+        else:
+            sql = f'SELECT * FROM ({query1}) t_all'
+
+        sql = text(sql)
+        rows = db.execute(sql, sql_params).all()
+
+        # Process results
+        cdrs = []
+        dataFields = [
+            'cdr_id', 'call_start_time', 'call_duration', 'call_direction', 'src_gwgroupid',
+            'src_gwgroupname', 'dst_gwgroupid', 'dst_gwgroupname', 'src_username',
+            'dst_username', 'src_address', 'dst_address', 'call_id'
+        ]
+        
+        for row in rows:
+            data = {}
+            data['cdr_id'] = int(row[0])
+            
+            # Convert GMT to GMT-5
+            if row[1] is not None:
+                gmt_datetime = row[1]
+                if isinstance(gmt_datetime, str):
+                    gmt_datetime = datetime.fromisoformat(gmt_datetime.replace('Z', '+00:00'))
+                
+                gmt_minus_5 = gmt_datetime.replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=-5)))
+                data['call_start_time'] = gmt_minus_5.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                data['call_start_time'] = row[1]
+
+            data['call_duration'] = str(row[2])
+            data['call_direction'] = row[3]
+            data['src_gwgroupid'] = row[4]
+            data['src_gwgroupname'] = row[5]
+            data['dst_gwgroupid'] = row[6]
+            data['dst_gwgroupname'] = row[7]
+            data['src_username'] = row[8]
+            data['dst_username'] = row[9]
+            data['src_address'] = row[10]
+            data['dst_address'] = row[11]
+            data['call_id'] = row[12]
+            cdrs.append(data)
+
+        # Generate CSV file
+        now = time.strftime('%Y%m%d-%H%M%S')
+        date_suffix = ''
+        if date_start != datetime.min or date_end != datetime.max:
+            start_str = date_start.strftime('%Y%m%d') if date_start != datetime.min else 'beginning'
+            end_str = date_end.strftime('%Y%m%d') if date_end != datetime.max else 'now'
+            date_suffix = f'_{start_str}_to_{end_str}'
+        
+        filename = secure_filename(f'{gwgroupName}_CDR_{now}{date_suffix}.csv')
+        
+        # Ensure export directory exists
+        export_dir = '/tmp/cdr_exports'
+        if not os.path.exists(export_dir):
+            os.makedirs(export_dir, mode=0o755)
+            
+        csv_file = os.path.join(export_dir, filename)
+        
+        with open(csv_file, 'w', newline='', encoding='utf-8') as csv_fp:
+            if len(cdrs) > 0:
+                dict_writer = csv.DictWriter(csv_fp, fieldnames=cdrs[0].keys())
+                dict_writer.writeheader()
+                dict_writer.writerows(cdrs)
+            else:
+                dict_writer = csv.DictWriter(csv_fp, fieldnames=dataFields)
+                dict_writer.writeheader()
+
+        if run_standalone:
+            IO.loginfo(f'CDR export completed: {csv_file}')
+            return csv_file
+        
+        return csv_file
+
+    except Exception as ex:
+        if run_standalone:
+            IO.logerr(f'CDR export failed: {str(ex)}')
+        else:
+            raise ex
+        return None
+    finally:
+        db.close()
+
+
+# Actualizar la función getGatewayGroupCDRS para soportar filtros de fecha
+@api.route("/api/v1/cdrs/endpointgroups/<int:gwgroupid>", methods=['GET'])
+@api_security
+def getGatewayGroupCDRSWithDateFilter(gwgroupid=None):
+    """
+    Get CDRs for a gateway group with enhanced date filtering support
+    """
+    if settings.DEBUG:
+        debugEndpoint()
+
+    # Parse parameters
+    report_type = request.args.get('type', 'json')
+    send_email = json.loads(request.args.get('email', 'false'))
+    cdrfilter = request.args.get('filter', None)
+    
+    # Enhanced date filtering
+    date_start = request.args.get('date_start', None)
+    date_end = request.args.get('date_end', None)
+    
+    # Legacy dtfilter support
+    if 'dtfilter' in request.args:
+        dtfilter = datetime.strptime(request.args['dtfilter'], "%Y-%m-%d")
+    else:
+        dtfilter = None
+    
+    # Parse date filters
+    dtfilter_start = None
+    dtfilter_end = None
+    
+    if date_start:
+        try:
+            dtfilter_start = datetime.strptime(date_start, "%Y-%m-%d")
+        except ValueError:
+            return createApiResponse(
+                msg="Invalid start date format. Use YYYY-MM-DD",
+                status_code=StatusCodes.HTTP_BAD_REQUEST
+            )
+    elif dtfilter:
+        dtfilter_start = dtfilter
+        
+    if date_end:
+        try:
+            dtfilter_end = datetime.strptime(date_end, "%Y-%m-%d")
+            dtfilter_end = dtfilter_end.replace(hour=23, minute=59, second=59)
+        except ValueError:
+            return createApiResponse(
+                msg="Invalid end date format. Use YYYY-MM-DD",
+                status_code=StatusCodes.HTTP_BAD_REQUEST
+            )
+
+    # Other parameters
+    nonCompletedCalls = json.loads(request.args.get('nonCompletedCalls', 'true'))
+
+    # Pagination parameters
+    if 'start' in request.args or 'length' in request.args:
+        page_start = int(request.args.get('start', 0))
+        page_len = int(request.args.get('length', 100))
+        filter_params = {
+            'paging': True,
+            'page_start': page_start,
+            'page_len': page_len,
+        }
+    else:
+        filter_params = {'paging': False}
+    
+    # Search parameters
+    if 'search[value]' in request.args and len(request.args['search[value]']) > 0:
+        filter_params['searching'] = True
+        filter_params['search_val'] = request.args['search[value]']
+        filter_params['search_regex'] = json.loads(request.args.get('search[regex]', 'false'))
+    else:
+        filter_params['searching'] = False
+    
+    # Ordering parameters
+    if 'order[0][column]' in request.args:
+        filter_params['ordering'] = True
+        filter_params['order_col'] = int(request.args['order[0][column]']) + 1
+        filter_params['order_dir'] = request.args['order[0][dir]']
+    else:
+        filter_params['ordering'] = False
+
+    # Use the updated generateCDRS function with enhanced date filtering
+    return generateCDRS(
+        gwgroupid=gwgroupid, 
+        report_type=report_type, 
+        send_email=send_email, 
+        dtfilter=dtfilter_start or datetime.min,
+        cdrfilter=cdrfilter, 
+        nonCompletedCalls=nonCompletedCalls, 
+        filter_params=filter_params
+    )
+
+
 @api.route("/api/v1/cdrs/endpointgroups/<int:gwgroupid>", methods=['GET'])
 @api_security
 def getGatewayGroupCDRS(gwgroupid=None):
     """
-    Purpose
-
-    Getting the cdrs for a gatewaygroup
-
+    Getting the cdrs for a gatewaygroup with enhanced date filtering
     """
-    if (settings.DEBUG):
+    if settings.DEBUG:
         debugEndpoint()
 
     report_type = request.args.get('type', 'json')
@@ -2787,15 +3451,51 @@ def getGatewayGroupCDRS(gwgroupid=None):
     else:
         send_email = False
     cdrfilter = request.args.get('filter', None)
+    
+    # Enhanced date filtering support
+    date_start = request.args.get('date_start', None)
+    date_end = request.args.get('date_end', None)
+    
+    # Legacy dtfilter support
     if 'dtfilter' in request.args:
         dtfilter = datetime.strptime(request.args['dtfilter'], "%Y-%m-%d")
     else:
         dtfilter = None
+    
+    # Parse date filters
+    dtfilter_start = None
+    dtfilter_end = None
+    
+    if date_start:
+        try:
+            dtfilter_start = datetime.strptime(date_start, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({
+                'error': 'Invalid start date format. Use YYYY-MM-DD',
+                'msg': 'Date parsing error',
+                'data': []
+            }), StatusCodes.HTTP_BAD_REQUEST
+    elif dtfilter:
+        dtfilter_start = dtfilter
+        
+    if date_end:
+        try:
+            dtfilter_end = datetime.strptime(date_end, "%Y-%m-%d")
+            # Set to end of day
+            dtfilter_end = dtfilter_end.replace(hour=23, minute=59, second=59)
+        except ValueError:
+            return jsonify({
+                'error': 'Invalid end date format. Use YYYY-MM-DD',
+                'msg': 'Date parsing error',
+                'data': []
+            }), StatusCodes.HTTP_BAD_REQUEST
+
     if 'nonCompletedCalls' in request.args:
         nonCompletedCalls = json.loads(request.args['nonCompletedCalls'])
     else:
         nonCompletedCalls = True
 
+    # Pagination parameters
     if 'start' in request.args or 'length' in request.args:
         page_start = int(request.args.get('start', 0))
         page_len = int(request.args.get('length', 100))
@@ -2808,6 +3508,8 @@ def getGatewayGroupCDRS(gwgroupid=None):
         filter_params = {
             'paging': False,
         }
+    
+    # Search parameters
     if 'search[value]' in request.args and len(request.args['search[value]']) > 0:
         filter_params['searching'] = True
         filter_params['search_val'] = request.args['search[value]']
@@ -2817,6 +3519,8 @@ def getGatewayGroupCDRS(gwgroupid=None):
             filter_params['search_regex'] = False
     else:
         filter_params['searching'] = False
+    
+    # Ordering parameters
     if 'order[0][column]' in request.args:
         filter_params['ordering'] = True
         filter_params['order_col'] = int(request.args['order[0][column]']) + 1
@@ -2824,8 +3528,17 @@ def getGatewayGroupCDRS(gwgroupid=None):
     else:
         filter_params['ordering'] = False
 
-    return generateCDRS(gwgroupid, report_type, send_email, dtfilter, cdrfilter, nonCompletedCalls, filter_params=filter_params)
-
+    return generateCDRS(
+        gwgroupid=gwgroupid,
+        report_type=report_type,
+        send_email=send_email,
+        dtfilter=dtfilter_start,
+        cdrfilter=cdrfilter,
+        nonCompletedCalls=nonCompletedCalls,
+        filter_params=filter_params,
+        date_start=dtfilter_start,
+        date_end=dtfilter_end
+    )
 
 # TODO: standardize response payload (use createApiResponse())
 @api.route("/api/v1/cdrs/endpoint/<int:gwid>", methods=['GET'])
@@ -3387,3 +4100,491 @@ def uploadCertificates(domain=None):
         return showApiError(ex)
     finally:
         db.close()
+
+
+# Agregar estos endpoints al archivo API de Python para gestión completa de exportaciones
+
+@api.route("/api/v1/cdrs/exports/<export_id>/status", methods=['GET'])
+@api_security
+def getExportStatus(export_id):
+    """
+    Get the status of a CDR export
+    
+    ================
+    Response Payload
+    ================
+    
+    .. code-block:: json
+    
+        {
+            error: <str>,
+            msg: <str>,
+            data: [
+                {
+                    export_id: <str>,
+                    status: <str>,        # "pending", "completed", "error"
+                    file_path: <str>,     # if completed
+                    error_message: <str>, # if error
+                    completion_time: <str>,
+                    gwgroupid: <int>,
+                    file_size: <int>      # if completed
+                }
+            ]
+        }
+    """
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+        
+        export_dir = '/tmp/cdr_exports'
+        status_file = os.path.join(export_dir, f'{export_id}.status')
+        error_file = os.path.join(export_dir, f'{export_id}.error')
+        
+        if os.path.exists(status_file):
+            with open(status_file, 'r') as f:
+                status_data = json.load(f)
+            
+            # Add file size if file exists
+            if 'file_path' in status_data and os.path.exists(status_data['file_path']):
+                status_data['file_size'] = os.path.getsize(status_data['file_path'])
+                status_data['file_name'] = os.path.basename(status_data['file_path'])
+            
+            return createApiResponse(
+                msg='Export status found',
+                data=[status_data],
+            )
+        elif os.path.exists(error_file):
+            with open(error_file, 'r') as f:
+                error_data = json.load(f)
+            
+            return createApiResponse(
+                msg='Export failed',
+                data=[error_data],
+            )
+        else:
+            # Export might still be running or doesn't exist
+            return createApiResponse(
+                msg='Export is still pending or does not exist',
+                data=[{
+                    'export_id': export_id,
+                    'status': 'pending'
+                }],
+            )
+    
+    except Exception as ex:
+        return showApiError(ex)
+
+
+@api.route("/api/v1/cdrs/exports", methods=['GET'])
+@api_security
+def listExports():
+    """
+    List all recent CDR exports
+    
+    ================
+    Response Payload
+    ================
+    
+    .. code-block:: json
+    
+        {
+            error: <str>,
+            msg: <str>,
+            data: [
+                {
+                    export_id: <str>,
+                    status: <str>,
+                    file_path: <str>,
+                    file_name: <str>,
+                    completion_time: <str>,
+                    gwgroupid: <int>,
+                    file_size: <int>
+                },
+                ...
+            ]
+        }
+    """
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+        
+        export_dir = '/tmp/cdr_exports'
+        exports = []
+        
+        if os.path.exists(export_dir):
+            # Process completed exports
+            for filename in os.listdir(export_dir):
+                if filename.endswith('.status'):
+                    status_file = os.path.join(export_dir, filename)
+                    try:
+                        with open(status_file, 'r') as f:
+                            status_data = json.load(f)
+                        
+                        # Add file info if file exists
+                        if 'file_path' in status_data and os.path.exists(status_data['file_path']):
+                            status_data['file_size'] = os.path.getsize(status_data['file_path'])
+                            status_data['file_name'] = os.path.basename(status_data['file_path'])
+                        
+                        exports.append(status_data)
+                    except (json.JSONDecodeError, OSError):
+                        continue
+            
+            # Process failed exports
+            for filename in os.listdir(export_dir):
+                if filename.endswith('.error'):
+                    error_file = os.path.join(export_dir, filename)
+                    try:
+                        with open(error_file, 'r') as f:
+                            error_data = json.load(f)
+                        
+                        exports.append(error_data)
+                    except (json.JSONDecodeError, OSError):
+                        continue
+        
+        # Sort by completion/error time (newest first)
+        exports.sort(key=lambda x: x.get('completion_time', x.get('error_time', '')), reverse=True)
+        
+        return createApiResponse(
+            msg=f'Found {len(exports)} exports',
+            data=exports,
+        )
+    
+    except Exception as ex:
+        return showApiError(ex)
+
+
+@api.route("/api/v1/cdrs/exports/<export_id>/download", methods=['GET'])
+@api_security
+def downloadExport(export_id):
+    """
+    Download a completed CDR export file
+    
+    ================
+    Response
+    ================
+    
+    Returns the CSV file as attachment or error message
+    """
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+        
+        export_dir = '/tmp/cdr_exports'
+        status_file = os.path.join(export_dir, f'{export_id}.status')
+        
+        if not os.path.exists(status_file):
+            raise http_exceptions.NotFound("Export not found")
+        
+        with open(status_file, 'r') as f:
+            status_data = json.load(f)
+        
+        if status_data.get('status') != 'completed':
+            raise http_exceptions.BadRequest("Export is not completed")
+        
+        file_path = status_data.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            raise http_exceptions.NotFound("Export file not found")
+        
+        return send_file(file_path, as_attachment=True), StatusCodes.HTTP_OK
+    
+    except Exception as ex:
+        return showApiError(ex)
+
+
+@api.route("/api/v1/cdrs/exports/<export_id>", methods=['DELETE'])
+@api_security
+def deleteExport(export_id):
+    """
+    Delete a CDR export and its associated files
+    
+    ================
+    Response Payload
+    ================
+    
+    .. code-block:: json
+    
+        {
+            error: <str>,
+            msg: <str>,
+            data: [
+                {
+                    deleted_files: [<str>, ...],
+                    files_count: <int>
+                }
+            ]
+        }
+    """
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+        
+        export_dir = '/tmp/cdr_exports'
+        files_to_delete = [
+            os.path.join(export_dir, f'{export_id}.status'),
+            os.path.join(export_dir, f'{export_id}.error')
+        ]
+        
+        # Find and add the actual CSV file
+        status_file = os.path.join(export_dir, f'{export_id}.status')
+        if os.path.exists(status_file):
+            try:
+                with open(status_file, 'r') as f:
+                    status_data = json.load(f)
+                file_path = status_data.get('file_path')
+                if file_path and os.path.exists(file_path):
+                    files_to_delete.append(file_path)
+            except (json.JSONDecodeError, OSError):
+                pass
+        
+        deleted_files = []
+        for file_path in files_to_delete:
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    deleted_files.append(os.path.basename(file_path))
+                except OSError as e:
+                    print(f"Error deleting file {file_path}: {str(e)}")
+        
+        if deleted_files:
+            return createApiResponse(
+                msg=f'Export deleted successfully',
+                data=[{
+                    'deleted_files': deleted_files,
+                    'files_count': len(deleted_files)
+                }],
+            )
+        else:
+            raise http_exceptions.NotFound("Export not found or no files to delete")
+    
+    except Exception as ex:
+        return showApiError(ex)
+
+
+@api.route("/api/v1/cdrs/exports/cleanup", methods=['POST'])
+@api_security
+def cleanupOldExports():
+    """
+    Clean up old export files
+    
+    ===============
+    Request Payload
+    ===============
+    
+    .. code-block:: json
+    
+        {
+            days_old: <int>  # optional, defaults to 7
+        }
+    
+    ================
+    Response Payload
+    ================
+    
+    .. code-block:: json
+    
+        {
+            error: <str>,
+            msg: <str>,
+            data: [
+                {
+                    files_deleted: <int>,
+                    files_cleaned: [<str>, ...],
+                    bytes_freed: <int>
+                }
+            ]
+        }
+    """
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+        
+        request_payload = getRequestData()
+        days_old = request_payload.get('days_old', 7)
+        
+        export_dir = '/tmp/cdr_exports'
+        if not os.path.exists(export_dir):
+            return createApiResponse(
+                msg='Export directory does not exist',
+                data=[{
+                    'files_deleted': 0, 
+                    'files_cleaned': [], 
+                    'bytes_freed': 0
+                }],
+            )
+        
+        current_time = time.time()
+        cutoff_time = current_time - (days_old * 24 * 60 * 60)
+        
+        deleted_files = []
+        files_deleted = 0
+        bytes_freed = 0
+        
+        for filename in os.listdir(export_dir):
+            file_path = os.path.join(export_dir, filename)
+            if os.path.isfile(file_path):
+                file_mtime = os.path.getmtime(file_path)
+                if file_mtime < cutoff_time:
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                        deleted_files.append(filename)
+                        files_deleted += 1
+                        bytes_freed += file_size
+                    except OSError as e:
+                        print(f"Error deleting file {filename}: {str(e)}")
+        
+        # Convert bytes to human readable format
+        def human_readable_size(size_bytes):
+            if size_bytes == 0:
+                return "0 B"
+            size_names = ["B", "KB", "MB", "GB"]
+            i = 0
+            while size_bytes >= 1024 and i < len(size_names) - 1:
+                size_bytes /= 1024.0
+                i += 1
+            return f"{size_bytes:.1f} {size_names[i]}"
+        
+        return createApiResponse(
+            msg=f'Cleanup completed. Deleted {files_deleted} files older than {days_old} days. Freed {human_readable_size(bytes_freed)}',
+            data=[{
+                'files_deleted': files_deleted,
+                'files_cleaned': deleted_files,
+                'bytes_freed': bytes_freed,
+                'human_readable_freed': human_readable_size(bytes_freed)
+            }],
+        )
+    
+    except Exception as ex:
+        return showApiError(ex)
+
+
+@api.route("/api/v1/cdrs/exports/stats", methods=['GET'])
+@api_security
+def getExportStats():
+    """
+    Get statistics about CDR exports
+    
+    ================
+    Response Payload
+    ================
+    
+    .. code-block:: json
+    
+        {
+            error: <str>,
+            msg: <str>,
+            data: [
+                {
+                    total_exports: <int>,
+                    completed_exports: <int>,
+                    failed_exports: <int>,
+                    total_size_bytes: <int>,
+                    total_size_human: <str>,
+                    oldest_export: <str>,
+                    newest_export: <str>
+                }
+            ]
+        }
+    """
+    
+    try:
+        if settings.DEBUG:
+            debugEndpoint()
+        
+        export_dir = '/tmp/cdr_exports'
+        
+        if not os.path.exists(export_dir):
+            return createApiResponse(
+                msg='Export directory does not exist',
+                data=[{
+                    'total_exports': 0,
+                    'completed_exports': 0,
+                    'failed_exports': 0,
+                    'total_size_bytes': 0,
+                    'total_size_human': '0 B',
+                    'oldest_export': None,
+                    'newest_export': None
+                }],
+            )
+        
+        completed_count = 0
+        failed_count = 0
+        total_size = 0
+        export_times = []
+        
+        # Count status files (completed exports)
+        for filename in os.listdir(export_dir):
+            if filename.endswith('.status'):
+                status_file = os.path.join(export_dir, filename)
+                try:
+                    with open(status_file, 'r') as f:
+                        status_data = json.load(f)
+                    
+                    completed_count += 1
+                    
+                    # Add file size
+                    if 'file_path' in status_data and os.path.exists(status_data['file_path']):
+                        total_size += os.path.getsize(status_data['file_path'])
+                    
+                    # Track completion time
+                    if 'completion_time' in status_data:
+                        export_times.append(status_data['completion_time'])
+                        
+                except (json.JSONDecodeError, OSError):
+                    continue
+        
+        # Count error files (failed exports)
+        for filename in os.listdir(export_dir):
+            if filename.endswith('.error'):
+                error_file = os.path.join(export_dir, filename)
+                try:
+                    with open(error_file, 'r') as f:
+                        error_data = json.load(f)
+                    
+                    failed_count += 1
+                    
+                    # Track error time
+                    if 'error_time' in error_data:
+                        export_times.append(error_data['error_time'])
+                        
+                except (json.JSONDecodeError, OSError):
+                    continue
+        
+        # Calculate human readable size
+        def human_readable_size(size_bytes):
+            if size_bytes == 0:
+                return "0 B"
+            size_names = ["B", "KB", "MB", "GB", "TB"]
+            i = 0
+            while size_bytes >= 1024 and i < len(size_names) - 1:
+                size_bytes /= 1024.0
+                i += 1
+            return f"{size_bytes:.1f} {size_names[i]}"
+        
+        # Find oldest and newest exports
+        export_times.sort()
+        oldest_export = export_times[0] if export_times else None
+        newest_export = export_times[-1] if export_times else None
+        
+        total_exports = completed_count + failed_count
+        
+        return createApiResponse(
+            msg='Export statistics retrieved',
+            data=[{
+                'total_exports': total_exports,
+                'completed_exports': completed_count,
+                'failed_exports': failed_count,
+                'total_size_bytes': total_size,
+                'total_size_human': human_readable_size(total_size),
+                'oldest_export': oldest_export,
+                'newest_export': newest_export
+            }],
+        )
+    
+    except Exception as ex:
+        return showApiError(ex)
